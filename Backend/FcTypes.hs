@@ -19,7 +19,19 @@ import Utils.FreeVars
 
 import Data.Maybe (isJust)
 import Data.Function (on)
-import Data.List ((\\))
+import Data.List (delete, (\\))
+
+withoutKind :: FcTyVarWithKind -> FcTyVar
+withoutKind (a :| k) = a
+
+withoutKinds :: [FcTyVarWithKind] -> [FcTyVar]
+withoutKinds = map withoutKind
+  
+withKind :: FcTyVar -> FcTyVarWithKind
+withKind a = a |: kindOf a
+  
+withKinds :: [FcTyVar] -> [FcTyVarWithKind]
+withKinds = map withKind
 
 -- * Arrow Type Constructor
 -- ----------------------------------------------------------------------------
@@ -37,22 +49,31 @@ isFcArrowTy _other_type = Nothing
 
 -- * Types
 -- ----------------------------------------------------------------------------
-data FcType = FcTyVar FcTyVar        -- ^ Type variable
-            | FcTyAbs FcTyVar FcType -- ^ Type abstraction
-            | FcTyApp FcType  FcType -- ^ Type application
-            | FcTyCon FcTyCon        -- ^ Type constructor
 
--- | Syntactic equality on System F types
+-- | the two type systems: System F and Bidirectional
+data System = SF | Bi
+  deriving (Show)
+
+-- | System F types 
+data FcType where
+  FcTyVar   :: FcTyVar -> FcType 
+  FcTyApp   :: FcType -> FcType -> FcType
+  FcTyAbs   :: FcTyVarWithKind -> FcType -> FcType
+  FcTyCon   :: FcTyCon -> FcType
+
+-- | Syntactic equality on types
 eqFcTypes :: FcType -> FcType -> Bool
-eqFcTypes (FcTyVar v1)    (FcTyVar v2)    = v1 == v2
+eqFcTypes (FcTyVar v1)    (FcTyVar v2)    =  v1 == v2
 eqFcTypes (FcTyAbs v1 t1) (FcTyAbs v2 t2) = (v1 == v2)      && eqFcTypes t1 t2
 eqFcTypes (FcTyApp t1 t2) (FcTyApp t3 t4) = eqFcTypes t1 t3 && eqFcTypes t2 t4
 eqFcTypes (FcTyCon tc1)   (FcTyCon tc2)   = tc1 == tc2
 
-eqFcTypes (FcTyVar {}) _ = False
-eqFcTypes (FcTyAbs {}) _ = False
-eqFcTypes (FcTyApp {}) _ = False
-eqFcTypes (FcTyCon {}) _ = False
+eqFcTypes (FcTyVar   {}) _ = False
+eqFcTypes (FcTyAbs   {}) _ = False
+eqFcTypes (FcTyApp   {}) _ = False
+eqFcTypes (FcTyCon   {}) _ = False
+  
+type FcTyVarWithKind = Ann FcTyVar Kind
 
 -- | Type Constructors
 newtype FcTyCon = FcTC { unFcTC :: Name }
@@ -100,9 +121,9 @@ instance Uniquable FcDataCon where
   getUnique = getUnique . unFcDC
 
 data FcDataConInfo
-  = FcDCInfo { fc_dc_data_con :: FcDataCon  -- ^ The data constructor name
-             , fc_dc_univ     :: [FcTyVar]  -- ^ Universal type variables
-             , fc_dc_parent   :: FcTyCon    -- ^ Parent type constructor
+  = FcDCInfo { fc_dc_data_con :: FcDataCon    -- ^ The data constructor name
+             , fc_dc_univ     :: [FcTyVar]    -- ^ Universal type variables
+             , fc_dc_parent   :: FcTyCon      -- ^ Parent type constructor
              , fc_dc_arg_tys  :: [FcType] } -- ^ Argument types
 
 -- | Pretty print data constructor info
@@ -116,19 +137,6 @@ instance PrettyPrint FcDataConInfo where
       ]
   needsParens _ = False
 
--- -- | Take the type apart the hindley milner way
--- destructFcTypeHM :: FcType -> ([FcTyVar], [FcType], FcType)
--- destructFcTypeHM (FcTyArr ty1 ty2) = (as, ty1:lhs, rhs)
---   where (as, lhs, rhs) = destructFcTypeHM ty2
--- destructFcTypeHM (FcTyAbs a ty) = (a:as, lhs, rhs)
---   where (as, lhs, rhs) = destructFcTypeHM ty
--- destructFcTypeHM ty@(FcTyVar  {}) = ([], [], ty)
--- destructFcTypeHM ty@(FcTyApp  {}) = ([], [], ty)
--- destructFcTypeHM ty@(FcTyCon  {}) = ([], [], ty)
-
-constructFcTypeHM :: ([FcTyVar], [FcType], FcType) -> FcType
-constructFcTypeHM (as, tys, ty) = fcTyAbs as (fcTyArr tys ty)
-
 -- | Take apart a type constructor application
 tyConAppMaybe :: FcType -> Maybe (FcTyCon, [FcType])
 tyConAppMaybe ty = go ty []
@@ -136,13 +144,14 @@ tyConAppMaybe ty = go ty []
     go :: FcType -> [FcType] -> Maybe (FcTyCon, [FcType])
     go (FcTyApp ty1 ty2)  tys = go ty1 (ty2:tys)
     go (FcTyCon tc)       tys = Just (tc, tys)
+    -- FIXME
     go _other_ty         _tys = Nothing
 
 -- * Some smart constructors (uncurried variants)
 -- ----------------------------------------------------------------------------
 
 -- | Uncurried version of data constructor FcTyAbs
-fcTyAbs :: [FcTyVar] -> FcType -> FcType
+fcTyAbs :: [FcTyVarWithKind] -> FcType -> FcType
 fcTyAbs vars ty = foldr FcTyAbs ty vars
 
 -- | Uncurried version of data constructor FcTyArr
@@ -159,14 +168,29 @@ fcTyConApp tc tys = fcTyApp (FcTyCon tc) tys
 
 -- * Terms
 -- ----------------------------------------------------------------------------
-data FcTerm = FcTmAbs FcTmVar FcType FcTerm         -- ^ Term abstraction: lambda x : ty . tm
-            | FcTmVar FcTmVar                       -- ^ Term variable
-            | FcTmApp FcTerm FcTerm                 -- ^ Term application
-            | FcTmTyAbs FcTyVar FcTerm              -- ^ Type abstraction: Lambda a . tm
-            | FcTmTyApp FcTerm FcType               -- ^ Type application
-            | FcTmDataCon FcDataCon                 -- ^ Data constructor
-            | FcTmLet FcTmVar FcType FcTerm FcTerm  -- ^ Let binding: let x : ty = tm in tm
-            | FcTmCase FcTerm [FcAlt]               -- ^ Case
+
+-- | term parameterized on type system and parser/renamed variables
+data FcTerm s where
+     FcTmAbs     :: FcTmVar -> FcType -> FcTerm SF -> FcTerm SF
+     -- ^ Term abstraction: lambda x : ty . tm
+     FcTmAbsBi   :: FcTmVar             -> FcTerm Bi -> FcTerm Bi
+     -- ^ unannotated lambda
+     FcTmVar     :: FcTmVar -> FcTerm s
+     -- ^ Term variable
+     FcTmApp     :: FcTerm s -> FcTerm s -> FcTerm s
+     -- ^ Term application
+     FcTmTyAbs   :: FcTyVarWithKind -> FcTerm SF -> FcTerm SF
+     -- ^ Type abstraction: Lambda . tm
+     FcTmTyApp   :: FcTerm SF -> FcType -> FcTerm SF
+     -- ^ Type application
+     FcTmLet     :: FcTmVar -> FcType -> FcTerm s -> FcTerm s -> FcTerm s 
+     -- ^ Let binding: let x : ty = tm in tm
+     FcTmAnn     :: FcTerm Bi -> FcType -> FcTerm Bi
+     -- ^ Annotated term
+     FcTmDataCon :: FcDataCon -> FcTerm s
+     -- ^ Data constructor
+     FcTmCase    :: FcTerm s -> FcAlts s -> FcTerm s
+     -- ^ Pattern match
 
 -- GEORGE: You should never need to make terms and patterns instances of Eq. If
 -- you do it means that something is probably wrong (the only setting where you
@@ -176,76 +200,85 @@ data FcTerm = FcTmAbs FcTmVar FcType FcTerm         -- ^ Term abstraction: lambd
 data FcPat = FcConPat FcDataCon [FcTmVar]
 
 -- | Case alternative(s)
-data FcAlt  = FcAlt FcPat FcTerm
-type FcAlts = [FcAlt]
+data FcAlt s  = FcAlt FcPat (FcTerm s)
+type FcAlts s = [(FcAlt s)]
 
 -- * Some smart constructors (uncurried variants)
 -- ----------------------------------------------------------------------------
 
 -- | Uncurried version of data constructor FcTmAbs
-fcTmAbs :: [(FcTmVar, FcType)] -> FcTerm -> FcTerm
+fcTmAbs :: [(FcTmVar, FcType)] -> FcTerm SF -> FcTerm SF
 fcTmAbs binds tm = foldr (uncurry FcTmAbs) tm binds
 
 -- | Uncurried version of data constructor FcTmTyAbs
-fcTmTyAbs :: [FcTyVar] -> FcTerm -> FcTerm
+fcTmTyAbs :: [FcTyVarWithKind] -> FcTerm SF -> FcTerm SF
 fcTmTyAbs tvs tm = foldr FcTmTyAbs tm tvs
 
 -- | Uncurried version of data constructor FcTmApp
-fcTmApp :: FcTerm -> [FcTerm] -> FcTerm
+fcTmApp :: FcTerm SF -> [FcTerm SF] -> FcTerm SF
 fcTmApp tm tms = foldl FcTmApp tm tms
 
 -- | Uncurried version of data constructor FcTmTyApp
-fcTmTyApp :: FcTerm -> [FcType] -> FcTerm
+fcTmTyApp :: FcTerm SF -> [FcType] -> FcTerm SF
 fcTmTyApp tm tys = foldl FcTmTyApp tm tys
-
+ 
 -- | Create a data constructor application
-fcDataConApp :: FcDataCon -> FcType -> [FcTerm] -> FcTerm
+fcDataConApp :: FcDataCon -> FcType -> [FcTerm SF] -> FcTerm SF
 fcDataConApp dc ty = fcTmApp (FcTmTyApp (FcTmDataCon dc) ty)
 
 -- | Apply a term to a list of dictionary variables
-fcDictApp :: FcTerm -> [DictVar] -> FcTerm
+fcDictApp :: FcTerm s -> [DictVar] -> FcTerm s
 fcDictApp tm ds = foldl FcTmApp tm (map FcTmVar ds)
+
+-- * Equality constraints
+-- ----------------------------------------------------------------------------
+
+data FcEqCt = FcType :-: FcType
+type FcEqCs = [FcEqCt]
 
 -- * Programs and declarations
 -- ----------------------------------------------------------------------------
 
 -- | Data Type Declaration
-data FcDataDecl = FcDataDecl { fdata_decl_tc   :: FcTyCon                 -- ^ Type Constructor
-                             , fdata_decl_tv   :: [FcTyVar]               -- ^ Universal Type variables
-                             , fdata_decl_cons :: [(FcDataCon, [FcType])] -- ^ Data Constructors
-                             }
+data FcDataDecl = FcDataDecl { fdata_decl_tc   :: FcTyCon
+                               -- ^ Type Constructor
+                               , fdata_decl_tv   :: [FcTyVar]
+                               -- ^ Universal Type variables
+                               , fdata_decl_cons :: [(FcDataCon, [FcType])]
+                               -- ^ Data Constructors
+                               }
 
 -- | Top-level Value Binding
-data FcValBind = FcValBind { fval_bind_var :: FcTmVar   -- ^ Variable Name
-                           , fval_bind_ty  :: FcType    -- ^ Variable Type
-                           , fval_bind_tm  :: FcTerm    -- ^ Variable Value
-                           }
+data FcValBind s = FcValBind { fval_bind_var :: FcTmVar  -- ^ Variable Name
+                             , fval_bind_ty  :: FcType   -- ^ Variable Type
+                             , fval_bind_tm  :: FcTerm s -- ^ Variable Value
+                             }
 
 -- | Program
-data FcProgram = FcPgmDataDecl FcDataDecl FcProgram     -- ^ Data Declaration
-               | FcPgmValDecl  FcValBind  FcProgram     -- ^ Value Binding
-               | FcPgmTerm FcTerm                       -- ^ Term
+data FcProgram s = FcPgmDataDecl FcDataDecl   (FcProgram s) -- ^ Data Declaration
+                 | FcPgmValDecl (FcValBind s) (FcProgram s) -- ^ Value Binding
+                 | FcPgmTerm    (FcTerm s)                  -- ^ Term
 
 -- * Collecting Free Variables Out Of Objects
 -- ------------------------------------------------------------------------------
 
 instance ContainsFreeTyVars FcType FcTyVar where
-  ftyvsOf (FcTyVar a)       = [a]
-  ftyvsOf (FcTyAbs a ty)    = ftyvsOf ty \\ [a]
-  ftyvsOf (FcTyApp ty1 ty2) = ftyvsOf ty1 ++ ftyvsOf ty2
-  ftyvsOf (FcTyCon tc)      = []
+  ftyvsOf (FcTyVar tv)            = [tv]
+  ftyvsOf (FcTyApp ty1 ty2)       = (ftyvsOf ty1) ++ (ftyvsOf ty2)
+  ftyvsOf (FcTyAbs (tv :| ki) ty) = delete tv (ftyvsOf ty)
+  ftyvsOf (FcTyCon tc)            = []
 
-instance ContainsFreeTyVars FcTerm FcTyVar where
+instance ContainsFreeTyVars (FcTerm SF) FcTyVar where
   ftyvsOf (FcTmAbs x ty tm)      = ftyvsOf ty ++ ftyvsOf tm
   ftyvsOf (FcTmVar x)            = []
   ftyvsOf (FcTmApp tm1 tm2)      = ftyvsOf tm1 ++ ftyvsOf tm2
-  ftyvsOf (FcTmTyAbs a tm)       = ftyvsOf tm \\ [a]
+  ftyvsOf (FcTmTyAbs a tm)       = ftyvsOf tm \\ [withoutKind a]
   ftyvsOf (FcTmTyApp tm ty)      = ftyvsOf tm ++ ftyvsOf ty
   ftyvsOf (FcTmDataCon dc)       = []
   ftyvsOf (FcTmLet x ty tm1 tm2) = ftyvsOf ty ++ ftyvsOf tm1 ++ ftyvsOf tm2
   ftyvsOf (FcTmCase tm cs)       = ftyvsOf tm ++ ftyvsOf cs
 
-instance ContainsFreeTyVars FcAlt FcTyVar where
+instance ContainsFreeTyVars (FcAlt SF) FcTyVar where
   ftyvsOf (FcAlt pat tm) = ftyvsOf tm
 
 -- * Pretty printing
@@ -269,18 +302,17 @@ instance PrettyPrint FcType where
                       then ppr ty2
                       else pprPar ty2
          = d1 <+> arrow <+> d2
-
-  ppr (FcTyVar a)       = ppr a
-  ppr (FcTyAbs a ty)    = text "forall" <+> ppr a <> dot <+> ppr ty
+  ppr (FcTyVar a)        = ppr a
+  ppr (FcTyAbs a ty)     = text "forall" <+> ppr a <> dot <+> ppr ty
   ppr (FcTyApp ty1 ty2)
-    | FcTyApp {} <- ty1 = ppr ty1    <+> pprPar ty2
-    | otherwise         = pprPar ty1 <+> pprPar ty2
+    | FcTyApp {} <- ty1  = ppr ty1    <+> pprPar ty2
+    | otherwise          = pprPar ty1 <+> pprPar ty2
   ppr (FcTyCon tc)      = ppr tc
 
-  needsParens (FcTyApp {}) = True
-  needsParens (FcTyAbs {}) = True
-  needsParens (FcTyVar {}) = False
-  needsParens (FcTyCon {}) = False
+  needsParens (FcTyApp   {}) = True
+  needsParens (FcTyAbs   {}) = True
+  needsParens (FcTyVar   {}) = False
+  needsParens (FcTyCon   {}) = False
 
 -- | Pretty print type constructors
 instance PrettyPrint FcTyCon where
@@ -293,8 +325,9 @@ instance PrettyPrint FcDataCon where
   needsParens _ = False
 
 -- | Pretty print terms
-instance PrettyPrint FcTerm where
+instance PrettyPrint (FcTerm s) where
   ppr (FcTmAbs x ty tm)    = hang (backslash <> parens (ppr x <+> dcolon <+> ppr ty) <> dot) 2 (ppr tm)
+  ppr (FcTmAbsBi x  tm)    = hang (backslash <> ppr x <> dot) 2 (ppr tm)
   ppr (FcTmVar x)          = ppr x
   ppr (FcTmApp tm1 tm2)
     | FcTmApp   {} <- tm1  = ppr tm1    <+> pprPar tm2
@@ -302,21 +335,23 @@ instance PrettyPrint FcTerm where
     | otherwise            = pprPar tm1 <+> pprPar tm2
   ppr (FcTmTyAbs a tm)     = hang (colorDoc yellow (text "/\\") <> ppr a <> dot) 2 (ppr tm)
   ppr (FcTmTyApp tm ty)    = pprPar tm <+> brackets (ppr ty)
-  ppr (FcTmDataCon dc)     = ppr dc
   ppr (FcTmLet x ty tm1 tm2)
     =  (colorDoc yellow (text "let") <+> ppr x <+> ((colon <+> ppr ty) $$ (equals <+> ppr tm1)))
     $$ (colorDoc yellow (text "in" ) <+> ppr tm2)
-
+  ppr (FcTmAnn tm ty)      = ppr tm <+> colon <+> ppr ty
+  ppr (FcTmDataCon dc)     = ppr dc
   ppr (FcTmCase tm cs)     = hang (colorDoc yellow (text "case") <+> ppr tm <+> colorDoc yellow (text "of"))
                                   2 (vcat $ map ppr cs)
 
   needsParens (FcTmApp     {}) = True
   needsParens (FcTmTyApp   {}) = True
   needsParens (FcTmLet     {}) = True
-  needsParens (FcTmCase    {}) = True
   needsParens (FcTmAbs     {}) = True
-  needsParens (FcTmVar     {}) = False
+  needsParens (FcTmAbsBi   {}) = True
+  needsParens (FcTmAnn     {}) = True
   needsParens (FcTmTyAbs   {}) = True
+  needsParens (FcTmVar     {}) = False
+  needsParens (FcTmCase    {}) = True
   needsParens (FcTmDataCon {}) = False
 
 -- | Pretty print patterns
@@ -325,7 +360,7 @@ instance PrettyPrint FcPat where
   needsParens _        = True
 
 -- | Pretty print case alternatives
-instance PrettyPrint FcAlt where
+instance PrettyPrint (FcAlt s) where
   ppr (FcAlt p tm) = ppr p <+> arrow <+> ppr tm
   needsParens _    = True
 
@@ -343,15 +378,20 @@ instance PrettyPrint FcDataDecl where
   needsParens _ = False
 
 -- | Pretty print top-level value bindings
-instance PrettyPrint FcValBind where
+instance PrettyPrint (FcValBind s) where
   ppr (FcValBind x ty tm) = hsep [ colorDoc yellow (text "let"), ppr x
                                  , vcat [ colon <+> ppr ty, equals <+> ppr tm ]
                                  ]
   needsParens _ = False
 
 -- | Pretty print programs
-instance PrettyPrint FcProgram where
+instance PrettyPrint (FcProgram s) where
   ppr (FcPgmDataDecl datadecl pgm) = ppr datadecl $$ ppr pgm
   ppr (FcPgmValDecl  valbind  pgm) = ppr valbind  $$ ppr pgm
   ppr (FcPgmTerm tm)               = ppr tm
   needsParens _ = False
+
+-- | Pretty print equality constraints
+instance PrettyPrint FcEqCt where
+  ppr (ty1 :-: ty2) = ppr ty1 <+> text "~" <+> ppr ty2
+  needsParens _ = True

@@ -18,7 +18,34 @@ cabal-version:       >=1.10
 executable khc
   ghc-options:         -Wall
   main-is:             Main.hs
-  -- other-modules:
+  other-modules:
+    Analysis.Ast
+    Backend.BiTranslate
+    Backend.BiTypeChecker
+    Backend.FcEvaluator
+    Backend.FcTypeChecker
+    Backend.FcTypes
+    Backend.Typechecking
+    Frontend.Conditions
+    Frontend.HsParser
+    Frontend.HsRenamer
+    Frontend.HsTypeChecker
+    Frontend.HsTypes
+    Utils.Annotated
+    Utils.AssocList
+    Utils.Ctx
+    Utils.Errors
+    Utils.FreeVars
+    Utils.Kind
+    Utils.ListT
+    Utils.PrettyPrint
+    Utils.SnocList
+    Utils.Substitution
+    Utils.Trace
+    Utils.Unify
+    Utils.Unique
+    Utils.Utils
+    Utils.Var
   other-extensions:
     LambdaCase,
     FlexibleInstances,
@@ -32,8 +59,10 @@ executable khc
     UndecidableInstances,
     Rank2Types,
     DataKinds,
-    TypeFamilies
+    TypeFamilies,
+    BangPatterns
   build-depends:       base >=4.11
+                     , extra >= 1.7
                      , mtl >=2.2
                      , pretty >=1.1
                      , megaparsec >= 7.0.0
