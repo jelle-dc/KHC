@@ -107,7 +107,7 @@ checkTerm tm (FcTyAbs ak ty) = do
   let (a :| k') = ak
   extendCtxTyM a k' (checkTerm tm ty)
 checkTerm tm@(FcTmApp tm1 tm2) ty
-  | isData tm1 = do checkData tm ty
+  | isData tm1 = checkData tm ty
 checkTerm (FcTmAbsBi x tm) ty
   | Just (tyA, tyR) <- isFcArrowTy ty = extendCtxTmM x tyA (checkTerm tm tyR)
 checkTerm (FcTmCase scr []  ) ty = throwError "Case alternatives empty"
@@ -151,36 +151,50 @@ checkData tm ty = do
   -- traceM (render $ ppr vars)
   -- traceM (render $ ppr argTys)
   -- traceM (render $ ppr tc)
-  let (checkTc,checkTys) = getTys ty []
+  let (checkTc,checkTys,funArgs) = getTys ty [] []
   -- traceM (render $ ppr checkTc)
   -- traceM (render $ ppr checkTys)
   unless (tc == checkTc) $
     throwErrorM (text "Datatype did not match."
-                $$ (text "Expected: " <+> ppr checkTc)
-                $$ (text "Got:      " <+> ppr tc))
-  tcArgs <- lookupTyConArgsM tc
+                $$ (text "Expected: " <+> ppr checkTc <+> text " with tys: " <+> ppr checkTys)
+                $$ (text "Got:      " <+> ppr tc      <+> text " with tys: " <+> ppr argTys)
+                $$ (text "In term:  " <+> ppr tm))
   -- traceM (render $ ppr tcArgs)
-  let tcArgs' = map FcTyVar tcArgs
-  let tys = reverse $ foldl substTy argTys (zipWith (|->) tcArgs checkTys)
+  let tys = reverse $ foldl substTy argTys (zipWith (|->) vars checkTys)
   -- traceM (render $ ppr tys)
-  check tm tys
+  tys' <- check' tys ty
+  check tm tys'
   where getData :: FcTerm 'Bi -> FcDataCon
         getData (FcTmDataCon dc) = dc
         getData (FcTmApp tm _)   = getData tm
+        getData _                = undefined
         substTy :: [FcType] -> FcTySubst -> [FcType]
         substTy tys sub = map (substFcTyInTy sub) tys
-        getTys :: FcType -> [FcType] -> (FcTyCon,[FcType])
-        getTys (FcTyApp ty1 ty2) tys = getTys ty1 (ty2:tys)
-        getTys (FcTyCon tc) tys      = (tc,tys)
-        getTys ty _ = error (render $ ppr ty)
+        getTys :: FcType -> [FcType] -> [FcType] -> (FcTyCon,[FcType],[FcType])
+        getTys ty tyArgs funArgs
+          | Just (dom, cod) <- isFcArrowTy ty = getTys cod tyArgs (dom:funArgs)
+        getTys (FcTyApp ty1 ty2) tyArgs funArgs = getTys ty1 (ty2:tyArgs) funArgs
+        getTys (FcTyCon tc) tyArgs funArgs = (tc,tyArgs, funArgs)
+        getTys ty _ _ = error (render $ ppr ty)
         check :: FcTerm 'Bi -> [FcType] -> FcM ()
         check (FcTmDataCon dc) [] = return () 
         check (FcTmApp tm1 tm2) (ty:tys) = check tm1 tys >> checkTerm tm2 ty
+        check tm tys = throwErrorM (text "tm: " <+> ppr tm $$ text "tys: "  <+> ppr tys)
+        check' :: [FcType] -> FcType -> FcM [FcType]
+        check' (ty:tys) fTy
+          | Just (dom, cod) <- isFcArrowTy fTy = alphaEqFcTypes dom ty >> check' tys cod
+        check' tys _ = pure tys 
+
+isDataType :: FcType -> Maybe (FcTyCon, [FcType])
+isDataType = go []
+  where go ts (FcTyCon tc) 
+          | tc /= fcArrowTyCon  = Just (tc, ts)
+          | otherwise           = Nothing
+        go ts (FcTyApp ty1 ty2) = go (ty2:ts) ty1
+        go _   _                = Nothing
 
 checkAlts :: [FcAlt 'Bi] -> FcType -> FcType -> FcM ()
-checkAlts alts scr_ty res_ty = do
-  mapM (\x -> checkAlt x scr_ty res_ty) alts
-  return ()
+checkAlts alts scr_ty res_ty = mapM_ (\x -> checkAlt x scr_ty res_ty) alts
 
 checkAlt :: FcAlt 'Bi -> FcType -> FcType -> FcM ()
 checkAlt (FcAlt (FcConPat dc xs) rhs) scr_ty res_ty = case tyConAppMaybe scr_ty of
