@@ -789,7 +789,7 @@ extendCtxKindAnnotatedTysM ann_as = extendCtxTysM as (map kindOf as)
 
 -- | 
 elabFuncDecl :: FullTheory -> RnFuncDecl
-             -> TcM (FcValBind, TcCtx)
+             -> TcM (FcValBind 'SF, TcCtx)
 elabFuncDecl theory (FuncD func func_ty func_tm) = do
   -- Construct the extended typing environment
   ty_ctx <- extendCtxTmM func func_ty ask
