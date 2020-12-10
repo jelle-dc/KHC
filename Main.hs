@@ -104,6 +104,13 @@ runAnalysis file = do
                   let (biTms, biTys, biSize) = analyze bi_pgm
                   putStrLn ("| Bi | " ++ p9 biTms ++ " | " ++ p9 biTys ++ " | " ++ p9 biSize ++ " | " ++ p9 (biTms + biSize) ++ " |") 
                   putStrLn "+----+-----------+-----------+-----------+-----------+"
-              
+                  putStrLn ("|    | " ++ f9 (fromIntegral biTms / fromIntegral terms) 
+                    ++ " | " ++ f9 (fromIntegral biTys / fromIntegral types) 
+                    ++ " | " ++ f9 (fromIntegral biSize / fromIntegral tySize) 
+                    ++ " | " ++ f9 (fromIntegral (biTms + biSize) / fromIntegral (terms + tySize))
+                    ++ " |")
+                  putStrLn "+----+-----------+-----------+-----------+-----------+"
   where p9 :: Integer -> String
         p9 = printf "%9d"
+        f9 :: Float -> String
+        f9 = printf "%8.2f%%" . (*100)
