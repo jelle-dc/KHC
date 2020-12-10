@@ -49,16 +49,9 @@ synthTerm (FcTmVar x)        = lookupTmVarM x
 synthTerm (FcTmAnn tm t)     = do
   k <- tcType t
   case k of
-    KStar -> (checkTerm tm t) >> (return t)
+    KStar -> checkTerm tm t >> return t
     _     -> throwErrorM (text "Wrong kind for type annotation. Expected KStar, got " <+> ppr k)
 --synthTerm q@(FcTmApp tm1 tm2) | trace ("Synth App: " ++ (showTm q) ++ "\n\n") False = undefined
-synthTerm (FcTmApp tm1 tm2)  = do
-  tyF <- synthTerm tm1
-  case isFcArrowTy tyF of
-    Just (tyA, tyR) -> checkTerm tm2 tyA >> return tyR
-    Nothing         -> throwErrorM (text "Wrong function FcType application"
-                                    $$ parens (text "Not a function type:"
-                                               <+> ppr tyF))
 --synthTerm q@(FcTmLet a ty tm1 tm2) | trace ("Synth Let: " ++ (showTm q) ++ "\n\n") False = undefined
 synthTerm (FcTmLet a ty tm1 tm2) = do
   tmVarNotInFcCtxM a
@@ -75,6 +68,8 @@ synthTerm (FcTmDataCon dc) = mkDataConTy <$> lookupDataConTyM dc
 --synthTerm q@(FcTmCase _ _) | trace ("Synth Cas: " ++ (showTm q) ++ "\n\n") False = undefined
 synthTerm (FcTmCase _ _) = throwErrorM
   $ text "synthTerm: Cannot synthesize type for case expression"
+synthTerm (FcTmApp _ _) = throwErrorM
+  $ text "synthTerm: Cannot synthesize type for application"
 
 showTm :: FcTerm 'Bi -> String
 showTm = printTm
@@ -106,8 +101,11 @@ checkTerm tm (FcTyAbs ak ty) = do
     throwErrorM (text "Wrong kind for term. Expected KStar, got " <+> ppr k)
   let (a :| k') = ak
   extendCtxTyM a k' (checkTerm tm ty)
-checkTerm tm@(FcTmApp tm1 tm2) ty
+checkTerm tm@(FcTmApp tm1 _) ty
   | isData tm1 = checkData tm ty
+checkTerm (FcTmApp tm1 tm2) ty = do
+  tyA <- synthTerm tm2
+  checkTerm tm1 (mkFcArrowTy ty tyA) 
 checkTerm (FcTmAbsBi x tm) ty
   | Just (tyA, tyR) <- isFcArrowTy ty = extendCtxTmM x tyA (checkTerm tm tyR)
 checkTerm (FcTmCase scr []  ) ty = throwError "Case alternatives empty"

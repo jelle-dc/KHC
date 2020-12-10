@@ -83,15 +83,16 @@ transTerm (FcTmApp tm1 tm2) s
                          Synth -> return (ty1b, (FcTmAnn (FcTmApp tmBi1 tmBi2) ty1b))
                          Check -> return (ty1b, (FcTmApp tmBi1 tmBi2))
 
-transTerm (FcTmApp tm1 tm2) _ = do
+transTerm (FcTmApp tm1 tm2) s = do
   -- application always switches to synthesis mode
-  (ty1, tmBi1) <- transTerm tm1 Synth
-  (ty2, tmBi2) <- case isMonoTy ty1 of
-    True  -> transTerm tm2 Check
-    False -> transTerm tm2 Synth
+  (ty1, tmBi1) <- transTerm tm1 Check
+  (ty2, tmBi2) <- transTerm tm2 Synth
   case isFcArrowTy ty1 of
     Just (ty1a, ty1b) -> alphaEqFcTypes ty1a ty2 >>= \case
-      True  -> return (ty1b, (FcTmApp tmBi1 tmBi2))
+      True  -> let tm = case s of 
+                          Synth -> FcTmAnn (FcTmApp tmBi1 tmBi2) ty1b
+                          Check -> FcTmApp tmBi1 tmBi2
+               in return (ty1b, tm)
       False -> throwErrorM (text "transTerm" <+> text "FcTmApp" $$ pprPar ty1a $$ pprPar ty2)
     Nothing           -> throwErrorM (text "Wrong function FcType application"
                                       $$ parens (text "ty1=" <+> ppr ty1)
