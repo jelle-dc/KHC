@@ -114,4 +114,4 @@ runAnalysis file = do
   where p9 :: Integer -> String
         p9 = printf "%d"
         f9 :: Float -> String
-        f9 = printf "%(.1f\\%%)" . (*100)
+        f9 = printf "(%.1f\\%%)" . (*100)
