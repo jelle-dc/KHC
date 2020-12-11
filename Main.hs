@@ -93,24 +93,25 @@ runAnalysis file = do
             (Left err,_) -> throwMainError "typechecker" err
             (Right ((((fc_pgm, _, _), envs), us2), _tc_env), _) -> do
               let (terms, types, tySize) = analyze fc_pgm
+              putStrLn "\\begin{table}{| c | c | c | c | c |}\\hline"
+              putStrLn " & terms & types & type size & total \\\\ \\hline"
               putStrLn "+----+-----------+-----------+-----------+-----------+"
-              putStrLn "|    |   terms   |   types   | type size |   total   |"
-              putStrLn "+----+-----------+-----------+-----------+-----------+"
-              putStrLn ("| SF | " ++ p9 terms ++ " | " ++ p9 types ++ " | " ++ p9 tySize ++ " | " ++ p9 (terms + tySize) ++ " |") 
-              putStrLn "+----+-----------+-----------+-----------+-----------+"
+              putStrLn ("SF & " ++ p9 terms ++ " & " ++ p9 types ++ " & " ++ p9 tySize ++ " & " ++ p9 (terms + tySize) ++ "\\\\ \\hline") 
               case biTranslate envs us2 fc_pgm of
                 (Left err,_) -> throwMainError "biTranslate" err
                 (Right ((bi_pgm, _), _), _) -> do
                   let (biTms, biTys, biSize) = analyze bi_pgm
-                  putStrLn ("| Bi | " ++ p9 biTms ++ " | " ++ p9 biTys ++ " | " ++ p9 biSize ++ " | " ++ p9 (biTms + biSize) ++ " |") 
-                  putStrLn "+----+-----------+-----------+-----------+-----------+"
-                  putStrLn ("|    | " ++ f9 (fromIntegral biTms / fromIntegral terms) 
-                    ++ " | " ++ f9 (fromIntegral biTys / fromIntegral types) 
-                    ++ " | " ++ f9 (fromIntegral biSize / fromIntegral tySize) 
-                    ++ " | " ++ f9 (fromIntegral (biTms + biSize) / fromIntegral (terms + tySize))
-                    ++ " |")
-                  putStrLn "+----+-----------+-----------+-----------+-----------+"
+                  putStrLn ("Bi & " 
+                    ++ p9 biTms ++ " " 
+                    ++ f9 (fromIntegral biTms / fromIntegral terms) ++ " & " 
+                    ++ p9 biTys ++ " " 
+                    ++ f9 (fromIntegral biTys / fromIntegral types) ++ " & " 
+                    ++ p9 biSize ++ " " 
+                    ++ f9 (fromIntegral biSize / fromIntegral tySize) ++ " & " 
+                    ++ p9 (biTms + biSize) ++ " " 
+                    ++ f9 (fromIntegral (biTms + biSize) / fromIntegral (terms + tySize))
+                    ++ "\\\\ \\hline") 
   where p9 :: Integer -> String
-        p9 = printf "%9d"
+        p9 = printf "%d"
         f9 :: Float -> String
-        f9 = printf "%8.2f%%" . (*100)
+        f9 = printf "%(.1f\\%%)" . (*100)
