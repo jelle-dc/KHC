@@ -95,7 +95,6 @@ runAnalysis file = do
               let (terms, types, tySize) = analyze fc_pgm
               putStrLn "\\begin{table}{| c | c | c | c | c |}\\hline"
               putStrLn " & terms & types & type size & total \\\\ \\hline"
-              putStrLn "+----+-----------+-----------+-----------+-----------+"
               putStrLn ("SF & " ++ p9 terms ++ " & " ++ p9 types ++ " & " ++ p9 tySize ++ " & " ++ p9 (terms + tySize) ++ "\\\\ \\hline") 
               case biTranslate envs us2 fc_pgm of
                 (Left err,_) -> throwMainError "biTranslate" err
