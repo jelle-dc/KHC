@@ -109,7 +109,8 @@ runAnalysis file = do
                     ++ f9 (fromIntegral biSize / fromIntegral tySize) ++ " & " 
                     ++ p9 (biTms + biSize) ++ " " 
                     ++ f9 (fromIntegral (biTms + biSize) / fromIntegral (terms + tySize))
-                    ++ "\\\\ \\hline") 
+                    ++ "\\\\ \\hline")
+                  putStrLn "\\end{table}"  
   where p9 :: Integer -> String
         p9 = printf "%d"
         f9 :: Float -> String
