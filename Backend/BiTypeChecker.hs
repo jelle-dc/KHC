@@ -36,9 +36,26 @@ import Data.List.Extra (allSame)
 -- * Type checking
 -- ----------------------------------------------------------------------------
 
-tcBiProgram :: FcProgram 'Bi -> FcM FcType
-tcBiProgram = tcProgram synthTerm
-tcBiValBind = tcValBind synthTerm
+tcBiProgram :: FcProgram Bi -> FcM FcType
+-- Type check a datatype declaration
+tcBiProgram (FcPgmDataDecl datadecl pgm) = do
+  tcFcDataDecl datadecl
+  tcBiProgram pgm
+-- Type check a top-level value binding
+tcBiProgram (FcPgmValDecl valBind pgm) = do
+  fc_ctx <- tcBiValBind valBind 
+  setCtxM fc_ctx $ tcBiProgram pgm
+-- Type check the top-level program expression
+tcBiProgram (FcPgmTerm tm) = synthTerm tm
+
+tcBiValBind :: FcValBind 'Bi -> FcM FcCtx
+tcBiValBind (FcValBind x ty tm) = do
+  tmVarNotInFcCtxM x  -- GEORGE: Ensure is not already bound
+  kind <- tcType ty
+  unless (kind == KStar) $
+    throwError "tcValBind: Kind mismatch (FcValBind)"
+  extendCtxTmM x ty (checkTerm tm ty)
+  extendCtxTmM x ty ask -- GEORGE: Return the extended environment
 
 -- | synthesize a term's type (=> direction)
 synthTerm :: FcTerm 'Bi -> FcM FcType

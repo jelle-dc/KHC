@@ -189,7 +189,7 @@ transValBind (FcValBind x ty tm) = do
   kind <- tcType ty
   unless (kind == KStar) $
     throwError "tcValBind: Kind mismatch (FcValBind)"
-  (ty',tm') <- extendCtxTmM x ty (transTerm tm Synth)
+  (ty',tm') <- extendCtxTmM x ty (transTerm tm Check)
   unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
                                 $$ parens (text "given:" <+> ppr ty)
                                 $$ parens (text "inferred:" <+> ppr ty'))
