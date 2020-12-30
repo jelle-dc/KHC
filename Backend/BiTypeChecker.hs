@@ -111,7 +111,7 @@ showTy = render . ppr
 
 -- | check a term's type (<= direction)
 checkTerm :: FcTerm 'Bi -> FcType -> FcM ()
---checkTerm tm ty | trace ("Checking: " ++ (showTm tm) ++ "\n Against: " ++ (showTy ty) ++ "\n\n") False = undefined 
+-- checkTerm tm ty | trace ("Checking: " ++ (showTm tm) ++ "\n Against: " ++ (showTy ty) ++ "\n\n") False = undefined 
 checkTerm tm (FcTyAbs ak ty) = do
   k <- tcType (FcTyAbs ak ty)
   unless (k == KStar) $
@@ -122,7 +122,7 @@ checkTerm tm@(FcTmApp tm1 _) ty
   | isData tm1 = checkData tm ty
 checkTerm (FcTmApp tm1 tm2) ty = do
   tyA <- synthTerm tm2
-  checkTerm tm1 (mkFcArrowTy ty tyA) 
+  checkTerm tm1 (mkFcArrowTy tyA ty) 
 checkTerm (FcTmAbsBi x tm) ty
   | Just (tyA, tyR) <- isFcArrowTy ty = extendCtxTmM x tyA (checkTerm tm tyR)
 checkTerm (FcTmCase scr []  ) ty = throwError "Case alternatives empty"
